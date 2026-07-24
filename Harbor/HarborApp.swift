@@ -9,7 +9,7 @@ struct HarborApp: App {
             MenuBarView()
                 .environmentObject(scanner)
         } label: {
-            MenuBarLabel(count: scanner.servers.count)
+            MenuBarLabel(count: scanner.filteredServers.count)
         }
         .menuBarExtraStyle(.window)
 
