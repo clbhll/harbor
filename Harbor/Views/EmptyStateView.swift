@@ -14,24 +14,25 @@ struct EmptyStateView: View {
 
                 Image(systemName: hasQuery ? "line.3.horizontal.decrease.circle" : "water.waves")
                     .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(Color(red: 0.78, green: 0.92, blue: 0.84))
+                    .foregroundStyle(HarborTheme.control)
                     .offset(y: bob ? -2 : 2)
             }
 
             VStack(spacing: 6) {
                 Text(hasQuery ? "Nothing matches" : "Quiet harbor")
                     .font(.system(size: 16, weight: .semibold, design: .serif))
-                    .foregroundStyle(Color(red: 0.93, green: 0.95, blue: 0.92))
+                    .foregroundStyle(HarborTheme.textPrimary)
 
                 Text(hasQuery
                      ? "Try another name or port."
                      : "Start a local server and it will appear here.")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(HarborTheme.textTertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 28)
             }
         }
+        .accessibilityElement(children: .combine)
         .onAppear {
             withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
                 bob = true

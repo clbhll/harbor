@@ -17,7 +17,21 @@
 		A10000000000000000000008 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* EmptyStateView.swift */; };
 		A10000000000000000000009 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* SettingsView.swift */; };
 		A1000000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* Assets.xcassets */; };
+		A1000000000000000000000B /* PortDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* PortDiscovery.swift */; };
+		A1000000000000000000000C /* AppIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* AppIconCache.swift */; };
+		A1000000000000000000000D /* BundlePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* BundlePath.swift */; };
+		A1000000000000000000000E /* PortDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* PortDiscoveryTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AB0000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A90000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A60000000000000000000001;
+			remoteInfo = Harbor;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A20000000000000000000001 /* HarborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarborApp.swift; sourceTree = "<group>"; };
@@ -32,11 +46,23 @@
 		A2000000000000000000000A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000000000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000000000000000000000C /* Harbor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Harbor.entitlements; sourceTree = "<group>"; };
+		A2000000000000000000000D /* PortDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortDiscovery.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* AppIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconCache.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* BundlePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundlePath.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* PortDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortDiscoveryTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* Harbor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Harbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A30000000000000000000002 /* HarborTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A40000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -50,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				A50000000000000000000002 /* Harbor */,
+				A50000000000000000000009 /* HarborTests */,
 				A50000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -74,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000001 /* Harbor.app */,
+				A30000000000000000000002 /* HarborTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -90,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000003 /* PortScanner.swift */,
+				A2000000000000000000000D /* PortDiscovery.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -117,8 +146,18 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000004 /* PortActions.swift */,
+				A2000000000000000000000E /* AppIconCache.swift */,
+				A2000000000000000000000F /* BundlePath.swift */,
 			);
 			path = Utilities;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000009 /* HarborTests */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000010 /* PortDiscoveryTests.swift */,
+			);
+			path = HarborTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -141,6 +180,23 @@
 			productReference = A30000000000000000000001 /* Harbor.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A60000000000000000000002 /* HarborTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000007 /* Build configuration list for PBXNativeTarget "HarborTests" */;
+			buildPhases = (
+				A70000000000000000000003 /* Sources */,
+				A40000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA0000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = HarborTests;
+			productName = HarborTests;
+			productReference = A30000000000000000000002 /* HarborTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -153,6 +209,10 @@
 				TargetAttributes = {
 					A60000000000000000000001 = {
 						CreatedOnToolsVersion = 15.4;
+					};
+					A60000000000000000000002 = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = A60000000000000000000001;
 					};
 				};
 			};
@@ -170,6 +230,7 @@
 			projectRoot = "";
 			targets = (
 				A60000000000000000000001 /* Harbor */,
+				A60000000000000000000002 /* HarborTests */,
 			);
 		};
 /* End PBXProject section */
@@ -193,7 +254,10 @@
 				A10000000000000000000001 /* HarborApp.swift in Sources */,
 				A10000000000000000000002 /* ListeningServer.swift in Sources */,
 				A10000000000000000000003 /* PortScanner.swift in Sources */,
+				A1000000000000000000000B /* PortDiscovery.swift in Sources */,
 				A10000000000000000000004 /* PortActions.swift in Sources */,
+				A1000000000000000000000C /* AppIconCache.swift in Sources */,
+				A1000000000000000000000D /* BundlePath.swift in Sources */,
 				A10000000000000000000005 /* HarborTheme.swift in Sources */,
 				A10000000000000000000006 /* MenuBarView.swift in Sources */,
 				A10000000000000000000007 /* ServerRowView.swift in Sources */,
@@ -202,7 +266,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A70000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000000000000E /* PortDiscoveryTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA0000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A60000000000000000000001 /* Harbor */;
+			targetProxy = AB0000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A80000000000000000000002 /* Debug */ = {
@@ -223,6 +303,8 @@
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -240,6 +322,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -266,7 +350,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.harbor.menu;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
 		};
@@ -293,7 +376,36 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.harbor.menu;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A80000000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.harbor.menu.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Harbor.app/Contents/MacOS/Harbor";
+			};
+			name = Debug;
+		};
+		A80000000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.harbor.menu.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Harbor.app/Contents/MacOS/Harbor";
 			};
 			name = Release;
 		};
@@ -314,6 +426,15 @@
 			buildConfigurations = (
 				A80000000000000000000005 /* Debug */,
 				A80000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000007 /* Build configuration list for PBXNativeTarget "HarborTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A80000000000000000000008 /* Debug */,
+				A80000000000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

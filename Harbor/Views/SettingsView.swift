@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @EnvironmentObject private var scanner: PortScanner
+    @Environment(PortScanner.self) private var scanner
 
     var body: some View {
+        @Bindable var scanner = scanner
+
         Form {
             Section("Display") {
                 Toggle("Hide system processes", isOn: $scanner.hideSystemProcesses)
@@ -11,7 +13,7 @@ struct SettingsView: View {
 
             Section("About") {
                 LabeledContent("App", value: "Harbor")
-                LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                LabeledContent("Version", value: Self.version)
                 Text("Local servers and ports, quietly in your menu bar.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -20,5 +22,9 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 360, height: 220)
         .padding()
+    }
+
+    private static var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 }

@@ -1,10 +1,9 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct MenuBarView: View {
-    @EnvironmentObject private var scanner: PortScanner
+    @Environment(PortScanner.self) private var scanner
     @State private var appeared = false
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ZStack {
@@ -12,9 +11,12 @@ struct MenuBarView: View {
 
             VStack(spacing: 0) {
                 header
-                searchBar
+                SearchField(scanner: scanner)
+                if let error = scanner.errorMessage {
+                    ErrorBanner(message: error) { scanner.dismissError() }
+                }
                 content
-                footer
+                FooterBar(scanner: scanner)
             }
         }
         .frame(width: HarborTheme.panelWidth, height: HarborTheme.panelHeight)
@@ -23,7 +25,10 @@ struct MenuBarView: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.84).delay(0.05)) {
                 appeared = true
             }
-            Task { await scanner.refresh() }
+            scanner.isPanelVisible = true
+        }
+        .onDisappear {
+            scanner.isPanelVisible = false
         }
     }
 
@@ -32,13 +37,13 @@ struct MenuBarView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Harbor")
                     .font(.system(size: 28, weight: .semibold, design: .serif))
-                    .foregroundStyle(Color(red: 0.93, green: 0.95, blue: 0.92))
+                    .foregroundStyle(HarborTheme.textPrimary)
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 6)
 
                 Text(subtitle)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color(red: 0.70, green: 0.82, blue: 0.76).opacity(0.85))
+                    .foregroundStyle(HarborTheme.textSecondary)
                     .opacity(appeared ? 1 : 0)
             }
 
@@ -49,7 +54,7 @@ struct MenuBarView: View {
             } label: {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.78, green: 0.90, blue: 0.84))
+                    .foregroundStyle(HarborTheme.control)
                     .rotationEffect(.degrees(scanner.isRefreshing ? 360 : 0))
                     .animation(
                         scanner.isRefreshing
@@ -58,10 +63,12 @@ struct MenuBarView: View {
                         value: scanner.isRefreshing
                     )
                     .frame(width: 28, height: 28)
-                    .background(Circle().fill(.white.opacity(0.08)))
+                    .background(Circle().fill(HarborTheme.surfaceHover))
             }
             .buttonStyle(.plain)
-            .help("Refresh now")
+            .disabled(scanner.isRefreshing)
+            .accessibilityLabel("Refresh")
+            .help(scanner.isRefreshing ? "Refreshing…" : "Refresh now")
         }
         .padding(.horizontal, 18)
         .padding(.top, 18)
@@ -76,63 +83,19 @@ struct MenuBarView: View {
         return "\(count) listening \(count == 1 ? "port" : "ports")"
     }
 
-    private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
-
-            TextField("Filter by name or port", text: $scanner.query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.92))
-                .focused($searchFocused)
-
-            if !scanner.query.isEmpty {
-                Button {
-                    scanner.query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.white.opacity(0.35))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.white.opacity(0.07))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 10)
-    }
-
     @ViewBuilder
     private var content: some View {
-        if let error = scanner.errorMessage {
-            VStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 22))
-                    .foregroundStyle(Color(red: 0.95, green: 0.78, blue: 0.45))
-                Text(error)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if scanner.filteredServers.isEmpty {
+        // Read once — this used to be a computed filter the separator check
+        // re-ran for every row.
+        let servers = scanner.filteredServers
+
+        if servers.isEmpty {
             EmptyStateView(hasQuery: !scanner.query.isEmpty)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(scanner.filteredServers.enumerated()), id: \.element.id) { index, server in
+                    ForEach(Array(servers.enumerated()), id: \.element.id) { index, server in
                         ServerRowView(server: server)
                             .padding(.horizontal, 10)
                             .opacity(appeared ? 1 : 0)
@@ -143,9 +106,9 @@ struct MenuBarView: View {
                                 value: appeared
                             )
 
-                        if index < scanner.filteredServers.count - 1 {
+                        if index < servers.count - 1 {
                             Rectangle()
-                                .fill(.white.opacity(0.06))
+                                .fill(HarborTheme.hairline)
                                 .frame(height: 1)
                                 .padding(.leading, 62)
                                 .padding(.trailing, 14)
@@ -156,13 +119,104 @@ struct MenuBarView: View {
             }
         }
     }
+}
 
-    private var footer: some View {
+// MARK: - Search
+
+private struct SearchField: View {
+    @Bindable var scanner: PortScanner
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(HarborTheme.textTertiary)
+
+            TextField("Filter by name or port", text: $scanner.query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(HarborTheme.textPrimary)
+                .focused($focused)
+
+            if !scanner.query.isEmpty {
+                Button {
+                    scanner.query = ""
+                    focused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(HarborTheme.decoration)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(HarborTheme.surfaceRaised)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(HarborTheme.surfaceStroke, lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+        .onAppear { focused = true }
+    }
+}
+
+// MARK: - Error banner
+
+private struct ErrorBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(HarborTheme.warning)
+
+            Text(message)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(HarborTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 4)
+
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(HarborTheme.decoration)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(HarborTheme.warning.opacity(0.12))
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .transition(.opacity)
+    }
+}
+
+// MARK: - Footer
+
+private struct FooterBar: View {
+    @Bindable var scanner: PortScanner
+
+    var body: some View {
         HStack(spacing: 12) {
             Toggle(isOn: $scanner.hideSystemProcesses) {
                 Text("Hide system")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(HarborTheme.textTertiary)
             }
             .toggleStyle(.checkbox)
             .controlSize(.small)
@@ -170,9 +224,7 @@ struct MenuBarView: View {
             Spacer()
 
             if let updated = scanner.lastUpdated {
-                Text("Updated \(updated.relativeShort)")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.35))
+                TimestampLabel(date: updated)
             }
 
             Button("Quit") {
@@ -180,12 +232,27 @@ struct MenuBarView: View {
             }
             .buttonStyle(.plain)
             .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white.opacity(0.45))
+            .foregroundStyle(HarborTheme.textTertiary)
             .help("Quit Harbor")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.black.opacity(0.25))
+        .background(HarborTheme.footerScrim)
+    }
+}
+
+/// Re-renders itself on a timer so "just now" doesn't go stale while the panel
+/// sits open between scans.
+private struct TimestampLabel: View {
+    let date: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: date, by: 5)) { _ in
+            Text("Updated \(date.relativeShort)")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(HarborTheme.textTertiary)
+                .monospacedDigit()
+        }
     }
 }
 

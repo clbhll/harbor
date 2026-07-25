@@ -21,7 +21,7 @@ Inspired by the eternal developer wish: glance at the menu bar, see what’s run
 ## Requirements
 
 - macOS 14 Sonoma or later
-- Xcode 15+
+- Xcode 16+ (the project builds in Swift 6 language mode)
 
 ## Build & run
 
@@ -34,7 +34,16 @@ Then press **⌘R**. Harbor appears in the menu bar (no Dock icon — it’s a U
 Or from the command line on a Mac:
 
 ```bash
-xcodebuild -project Harbor.xcodeproj -scheme Harbor -configuration Debug
+xcodebuild -project Harbor.xcodeproj -scheme Harbor -configuration Debug build
+```
+
+## Tests
+
+The parsing layer — `lsof` field output, endpoint strings, process naming — is covered
+by Swift Testing suites that run without touching live processes.
+
+```bash
+xcodebuild -project Harbor.xcodeproj -scheme Harbor -destination 'platform=macOS' test
 ```
 
 ## Design notes
@@ -46,13 +55,26 @@ Visual direction is **ink + seafoam**: deep green-black atmosphere, serif brand 
 ```
 Harbor.xcodeproj
 Harbor/
-├── HarborApp.swift          # MenuBarExtra entry
+├── HarborApp.swift              # MenuBarExtra entry
 ├── Models/
-├── Services/PortScanner.swift
+│   └── ListeningServer.swift
+├── Services/
+│   ├── PortScanner.swift        # observable state, polling, filtering
+│   └── PortDiscovery.swift      # lsof + libproc parsing
 ├── Views/
-├── Theme/
+├── Theme/HarborTheme.swift      # semantic colour + metric tokens
 └── Utilities/
+    ├── PortActions.swift
+    ├── AppIconCache.swift       # icon lookups are cached, not per-render
+    └── BundlePath.swift
+HarborTests/
 ```
+
+## Polling
+
+Scanning forks `lsof` and reads argv for every listening pid, so Harbor scans on
+two cadences: every 2.5s while the panel is open, and every 20s once it closes.
+The menu bar count stays roughly right without paying for it all day.
 
 ## Privacy
 
