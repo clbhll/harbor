@@ -11,10 +11,10 @@ struct ServerRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(nsImage: AppIconCache.icon(forExecutableAt: server.executablePath, size: 32))
+            Image(nsImage: AppIconCache.icon(forExecutableAt: server.executablePath))
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 32, height: 32)
+                .frame(width: AppIconCache.size, height: AppIconCache.size)
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .shadow(color: .black.opacity(isHovering ? 0.35 : 0.15), radius: isHovering ? 6 : 2, y: 1)
 
@@ -100,15 +100,11 @@ struct ServerRowView: View {
     }
 
     private func terminate() {
-        guard PortActions.terminate(server) else {
-            scanner.report(PortActions.terminationFailureMessage(for: server))
-            return
-        }
-        // Signal delivery is async — give the process a beat to go down before
-        // rescanning, so the row actually disappears.
-        Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            await scanner.refresh()
+        switch PortActions.terminate(server) {
+        case .failed(let reason):
+            scanner.report(reason)
+        case .succeeded:
+            Task { await scanner.refreshUntilGone(pid: server.pid) }
         }
     }
 

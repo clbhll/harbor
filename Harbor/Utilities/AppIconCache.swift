@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import UniformTypeIdentifiers
 
 /// Icon lookup is a synchronous IconServices + disk round-trip. It used to run
@@ -8,27 +7,34 @@ import UniformTypeIdentifiers
 /// so resolve once and hand back the same `NSImage`.
 @MainActor
 enum AppIconCache {
-    private static var cache: [Key: NSImage] = [:]
+    /// Every row draws at the same size; there's no reason to key on it.
+    static let size: CGFloat = 32
 
-    private struct Key: Hashable {
-        let path: String
-        let size: CGFloat
-    }
+    /// Pruning only kicks in past this many entries. Evicting on exact
+    /// per-scan membership would thrash — a dev server that restarts between
+    /// scans would lose its icon and pay the full lookup again the moment it
+    /// comes back.
+    private static let pruneThreshold = 64
 
-    static func icon(forExecutableAt path: String?, size: CGFloat) -> NSImage {
-        let key = Key(path: path ?? "", size: size)
+    private static var cache: [String: NSImage] = [:]
+
+    static func icon(forExecutableAt path: String?) -> NSImage {
+        let key = path ?? ""
         if let cached = cache[key] { return cached }
 
-        let image = resized(resolve(path), size: size)
+        let image = resized(resolve(path))
         cache[key] = image
         return image
     }
 
-    /// Frees icons for executables that are no longer listening.
-    static func retain(pathsIn servers: [ListeningServer]) {
+    /// Drops icons for executables that are no longer listening, once the cache
+    /// has grown enough to be worth the sweep.
+    static func prune(keeping servers: [ListeningServer]) {
+        guard cache.count > pruneThreshold else { return }
+
         var live = Set(servers.map { $0.executablePath ?? "" })
         live.insert("")  // the generic fallback is always worth keeping
-        cache = cache.filter { live.contains($0.key.path) }
+        cache = cache.filter { live.contains($0.key) }
     }
 
     private static func resolve(_ path: String?) -> NSImage {
@@ -47,7 +53,7 @@ enum AppIconCache {
         return NSWorkspace.shared.icon(forFile: path)
     }
 
-    private static func resized(_ image: NSImage, size: CGFloat) -> NSImage {
+    private static func resized(_ image: NSImage) -> NSImage {
         let target = NSSize(width: size, height: size)
         return NSImage(size: target, flipped: false) { rect in
             image.draw(in: rect)

@@ -22,23 +22,24 @@ enum PortActions {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
-    /// Sends SIGTERM directly rather than shelling out to `/bin/kill` and blocking
-    /// the main thread on `waitUntilExit`. Returns false if the signal was refused
-    /// (most often EPERM — the process belongs to another user).
-    @discardableResult
-    static func terminate(_ server: ListeningServer) -> Bool {
-        kill(server.pid, SIGTERM) == 0
+    enum TerminationOutcome {
+        case succeeded
+        case failed(reason: String)
     }
 
-    static func terminationFailureMessage(for server: ListeningServer) -> String {
-        switch errno {
-        case EPERM:
-            return "Not permitted to terminate \(server.displayName) (pid \(server.pid))."
-        case ESRCH:
-            return "\(server.displayName) (pid \(server.pid)) is no longer running."
-        default:
-            return "Couldn't terminate \(server.displayName) (pid \(server.pid))."
+    /// Sends SIGTERM directly rather than shelling out to `/bin/kill` and blocking
+    /// the main thread on `waitUntilExit`. `errno` is captured at the syscall and
+    /// handed back as a value, so callers don't have to know not to disturb it.
+    static func terminate(_ server: ListeningServer) -> TerminationOutcome {
+        guard kill(server.pid, SIGTERM) != 0 else { return .succeeded }
+
+        let code = errno
+        let reason = switch code {
+        case EPERM: "Not permitted to terminate \(server.displayName) (pid \(server.pid))."
+        case ESRCH: "\(server.displayName) (pid \(server.pid)) is no longer running."
+        default: "Couldn't terminate \(server.displayName) (pid \(server.pid))."
         }
+        return .failed(reason: reason)
     }
 
     private static func copy(_ string: String) {

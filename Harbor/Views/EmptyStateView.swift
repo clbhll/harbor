@@ -8,7 +8,7 @@ struct EmptyStateView: View {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color(red: 0.25, green: 0.45, blue: 0.38).opacity(0.35))
+                    .fill(HarborTheme.surfaceAccent)
                     .frame(width: 64, height: 64)
                     .scaleEffect(bob ? 1.08 : 0.94)
 

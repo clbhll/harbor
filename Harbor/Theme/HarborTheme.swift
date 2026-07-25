@@ -18,7 +18,6 @@ enum HarborTheme {
     static let textPrimary = mist
     static let textSecondary = Color(red: 0.70, green: 0.82, blue: 0.76)
     static let textTertiary = Color.white.opacity(0.58)
-    static let textPlaceholder = Color.white.opacity(0.5)
 
     /// Non-text decoration only (separators, interpunct). Never put a word in this.
     static let hairline = Color.white.opacity(0.09)
@@ -33,6 +32,7 @@ enum HarborTheme {
 
     // MARK: - Surfaces
 
+    static let surfaceAccent = Color(red: 0.25, green: 0.45, blue: 0.38).opacity(0.35)
     static let surfaceRaised = Color.white.opacity(0.07)
     static let surfaceHover = Color.white.opacity(0.08)
     static let surfaceStroke = Color.white.opacity(0.08)

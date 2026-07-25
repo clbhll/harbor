@@ -26,7 +26,7 @@ final class PortScanner {
     var hideSystemProcesses: Bool {
         didSet {
             guard hideSystemProcesses != oldValue else { return }
-            UserDefaults.standard.set(hideSystemProcesses, forKey: Self.hideSystemDefaultsKey)
+            defaults.set(hideSystemProcesses, forKey: Self.hideSystemDefaultsKey)
             applyFilters()
         }
     }
@@ -37,7 +37,10 @@ final class PortScanner {
     var isPanelVisible = false {
         didSet {
             guard isPanelVisible != oldValue else { return }
-            startPolling()
+            // Scan straight away when the panel opens so it isn't showing stale
+            // rows; when it closes there's nothing to show, so just relax the
+            // cadence rather than paying for one more scan on the way out.
+            startPolling(immediate: isPanelVisible)
         }
     }
 
@@ -53,11 +56,14 @@ final class PortScanner {
         "airplayxpchelper", "remoted", "bluetoothd"
     ]
 
+    private let defaults: UserDefaults
+
     init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // `object(forKey:)` rather than `bool(forKey:)` so a first launch keeps
         // the intended default of true instead of falling through to false.
         hideSystemProcesses = defaults.object(forKey: Self.hideSystemDefaultsKey) as? Bool ?? true
-        startPolling()
+        startPolling(immediate: true)
     }
 
     // MARK: - Polling
@@ -66,13 +72,16 @@ final class PortScanner {
     /// nonisolated `deinit` while the property it touched was main-actor
     /// isolated — legal only because the project was in Swift 5 mode. The loop
     /// holds `self` weakly and exits on its own once the scanner goes away.
-    private func startPolling() {
+    private func startPolling(immediate: Bool) {
         pollTask?.cancel()
 
         pollTask = Task { [weak self] in
+            var shouldScan = immediate
             while !Task.isCancelled {
                 guard let self else { return }
-                await self.refresh()
+                if shouldScan { await self.refresh() }
+                shouldScan = true
+
                 let interval = self.isPanelVisible ? Self.activeInterval : Self.idleInterval
                 do {
                     try await Task.sleep(for: interval)
@@ -94,7 +103,7 @@ final class PortScanner {
             }.value
 
             servers = discovered
-            AppIconCache.retain(pathsIn: discovered)
+            AppIconCache.prune(keeping: discovered)
             applyFilters()
             lastUpdated = Date()
             errorMessage = nil
@@ -102,6 +111,19 @@ final class PortScanner {
             // Keep the last good list on screen; the view surfaces this as a
             // banner rather than replacing everything with an error state.
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Rescans until `pid` stops listening, or we run out of attempts. Signal
+    /// delivery and teardown take an unbounded amount of time, so poll for it
+    /// instead of guessing a single delay.
+    func refreshUntilGone(pid: Int32, attempts: Int = 6) async {
+        for attempt in 0..<attempts {
+            if attempt > 0 {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            await refresh()
+            if !servers.contains(where: { $0.pid == pid }) { return }
         }
     }
 
