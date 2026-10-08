@@ -21,7 +21,9 @@ struct ProcessIdentity: Hashable, Sendable {
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &before, size) == size else { return nil }
 
-        var path = [UInt8](repeating: 0, count: Int(PROC_PIDPATHINFO_MAXSIZE))
+        // PROC_PIDPATHINFO_MAXSIZE is a C expression macro (4 * MAXPATHLEN)
+        // that Swift's importer does not expose. Use the same public bound.
+        var path = [UInt8](repeating: 0, count: 4 * Int(PATH_MAX))
         let length = path.withUnsafeMutableBytes { raw in
             proc_pidpath(pid, raw.baseAddress, UInt32(raw.count))
         }
