@@ -6,6 +6,7 @@ import Foundation
 struct ProcessDetails: Sendable {
     var executablePath: String?
     var commandLine: String?
+    var identity: ProcessIdentity? = nil
 
     static let unknown = ProcessDetails(executablePath: nil, commandLine: nil)
 }
@@ -32,22 +33,20 @@ final class LiveProcessInspector: ProcessInspecting {
     }()
 
     private var buffer: [UInt8]
+    private let scanStartedAt: Date
 
-    init() {
+    init(scanStartedAt: Date = Date()) {
+        self.scanStartedAt = scanStartedAt
         buffer = [UInt8](repeating: 0, count: Self.argMax)
     }
 
     func details(for pid: Int32) -> ProcessDetails {
-        ProcessDetails(executablePath: executablePath(for: pid), commandLine: commandLine(for: pid))
-    }
-
-    private func executablePath(for pid: Int32) -> String? {
-        var path = [UInt8](repeating: 0, count: Int(PATH_MAX))
-        let length = path.withUnsafeMutableBytes { raw in
-            proc_pidpath(pid, raw.baseAddress, UInt32(raw.count))
+        guard let before = ProcessIdentity.read(for: pid), before.predates(scanStartedAt) else {
+            return .unknown
         }
-        guard length > 0 else { return nil }
-        return String(decoding: path.prefix(Int(length)), as: UTF8.self)
+        let command = commandLine(for: pid)
+        guard ProcessIdentity.read(for: pid) == before else { return .unknown }
+        return ProcessDetails(executablePath: before.executablePath, commandLine: command, identity: before)
     }
 
     /// Returns nil for processes we can't read — non-root can only pull argv for
@@ -61,41 +60,25 @@ final class LiveProcessInspector: ProcessInspecting {
         }
         guard result == 0, bufferSize > MemoryLayout<Int32>.size else { return nil }
 
-        let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
-        guard argc > 0 else { return nil }
-
-        // Layout: argc, exec_path, NUL padding, then argc NUL-separated args.
-        var index = MemoryLayout<Int32>.size
-        while index < bufferSize && buffer[index] != 0 { index += 1 }
-        while index < bufferSize && buffer[index] == 0 { index += 1 }
-
-        var args: [String] = []
-        for _ in 0..<argc {
-            guard index < bufferSize else { break }
-            var end = index
-            while end < bufferSize && buffer[end] != 0 { end += 1 }
-            if end > index, let str = String(bytes: buffer[index..<end], encoding: .utf8) {
-                args.append(str)
-            }
-            index = end + 1
-            while index < bufferSize && buffer[index] == 0 { index += 1 }
-        }
-
-        return args.isEmpty ? nil : args.joined(separator: " ")
+        guard let arguments = ProcessArguments.parse(buffer, count: bufferSize) else { return nil }
+        return ProcessArguments.display(arguments)
     }
 }
 
 // MARK: - Discovery
 
 enum PortDiscovery {
-    static func discover() throws -> [ListeningServer] {
-        let output = try run("/usr/sbin/lsof", arguments: [
+    static func discover() async throws -> [ListeningServer] {
+        let startedAt = Date()
+        let result = try await CommandRunner.run(launchPath: "/usr/sbin/lsof", arguments: [
             "-nP",
             "-iTCP",
             "-sTCP:LISTEN",
             "-Fpcn"
         ])
-        return parseLsof(output, inspector: LiveProcessInspector())
+        let output = try validatedOutput(result)
+        try Task.checkCancellation()
+        return parseLsof(output, inspector: LiveProcessInspector(scanStartedAt: startedAt))
     }
 
     /// Parses `lsof -F` field output. Each record is a set of one-character-tagged
@@ -151,7 +134,8 @@ enum PortDiscovery {
                         port: endpoint.port,
                         address: endpoint.address,
                         executablePath: details.executablePath,
-                        commandLine: details.commandLine
+                        commandLine: details.commandLine,
+                        processIdentity: details.identity
                     )
                 )
             default:
@@ -222,31 +206,25 @@ enum PortDiscovery {
         return processName
     }
 
-    private static func run(_ launchPath: String, arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: launchPath)
-        process.arguments = arguments
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-
-        // Read before waiting — a full pipe buffer would deadlock the child.
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        // lsof returns 1 when nothing is listening; treat as empty success.
-        if process.terminationStatus != 0 && process.terminationStatus != 1 {
-            let message = String(data: errData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw DiscoveryError.commandFailed(message ?? "lsof exited \(process.terminationStatus)")
+    /// lsof uses status 1 for both an empty match and failures. Diagnostics or
+    /// partial output cannot prove an empty scan, even when the status is 0/1.
+    static func validatedOutput(_ result: CommandOutput) throws -> String {
+        let diagnostic = String(decoding: result.stderr, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.terminationReason == .exit else {
+            throw DiscoveryError.commandFailed("Port discovery was interrupted.")
         }
-
-        return String(data: data, encoding: .utf8) ?? ""
+        guard diagnostic.isEmpty else {
+            throw DiscoveryError.commandFailed(diagnostic)
+        }
+        if result.status == 1 && result.stdout.isEmpty { return "" }
+        guard result.status == 0 else {
+            throw DiscoveryError.commandFailed("lsof exited \(result.status); keeping the last successful scan.")
+        }
+        guard let output = String(data: result.stdout, encoding: .utf8) else {
+            throw DiscoveryError.commandFailed("Port discovery returned unreadable output.")
+        }
+        return output
     }
 }
 
@@ -260,3 +238,4 @@ enum DiscoveryError: LocalizedError {
         }
     }
 }
+

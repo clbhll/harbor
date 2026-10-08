@@ -21,6 +21,11 @@
 		A1000000000000000000000C /* AppIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* AppIconCache.swift */; };
 		A1000000000000000000000D /* BundlePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* BundlePath.swift */; };
 		A1000000000000000000000E /* PortDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* PortDiscoveryTests.swift */; };
+		A1000000000000000000000F /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* CommandRunner.swift */; };
+		A10000000000000000000010 /* ProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* ProcessIdentity.swift */; };
+		A10000000000000000000011 /* CommandRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* CommandRunnerTests.swift */; };
+		A10000000000000000000012 /* PortScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* PortScannerTests.swift */; };
+		A10000000000000000000013 /* ProcessSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* ProcessSafetyTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +57,11 @@
 		A20000000000000000000010 /* PortDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortDiscoveryTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* Harbor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Harbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000002 /* HarborTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HarborTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* CommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunner.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* ProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessIdentity.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* CommandRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunnerTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* ProcessSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSafetyTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,6 +129,8 @@
 			children = (
 				A20000000000000000000003 /* PortScanner.swift */,
 				A2000000000000000000000D /* PortDiscovery.swift */,
+				A20000000000000000000012 /* ProcessIdentity.swift */,
+				A20000000000000000000011 /* CommandRunner.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -156,6 +168,9 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000010 /* PortDiscoveryTests.swift */,
+				A20000000000000000000015 /* ProcessSafetyTests.swift */,
+				A20000000000000000000014 /* PortScannerTests.swift */,
+				A20000000000000000000013 /* CommandRunnerTests.swift */,
 			);
 			path = HarborTests;
 			sourceTree = "<group>";
@@ -255,6 +270,8 @@
 				A10000000000000000000002 /* ListeningServer.swift in Sources */,
 				A10000000000000000000003 /* PortScanner.swift in Sources */,
 				A1000000000000000000000B /* PortDiscovery.swift in Sources */,
+				A10000000000000000000010 /* ProcessIdentity.swift in Sources */,
+				A1000000000000000000000F /* CommandRunner.swift in Sources */,
 				A10000000000000000000004 /* PortActions.swift in Sources */,
 				A1000000000000000000000C /* AppIconCache.swift in Sources */,
 				A1000000000000000000000D /* BundlePath.swift in Sources */,
@@ -271,6 +288,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000000000000000000000E /* PortDiscoveryTests.swift in Sources */,
+				A10000000000000000000013 /* ProcessSafetyTests.swift in Sources */,
+				A10000000000000000000012 /* PortScannerTests.swift in Sources */,
+				A10000000000000000000011 /* CommandRunnerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -443,3 +463,4 @@
 	};
 	rootObject = A90000000000000000000001 /* Project object */;
 }
+

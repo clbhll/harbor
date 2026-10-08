@@ -1,0 +1,33 @@
+name: macOS build and tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Show tested revision and toolchain
+        run: |
+          git rev-parse HEAD
+          xcodebuild -version
+      - name: Clean build and test
+        run: >-
+          xcodebuild -project Harbor.xcodeproj -scheme Harbor
+          -destination 'platform=macOS'
+          -derivedDataPath "$RUNNER_TEMP/HarborDerivedData"
+          CODE_SIGNING_ALLOWED=NO clean test

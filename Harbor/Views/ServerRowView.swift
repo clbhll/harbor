@@ -8,6 +8,7 @@ struct ServerRowView: View {
     @State private var isHovering = false
     @State private var copiedFlash = false
     @State private var confirmingTerminate = false
+    @State private var terminationTarget: ListeningServer?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -80,18 +81,25 @@ struct ServerRowView: View {
             }
             Divider()
             Button("Terminate Process…", role: .destructive) {
+                terminationTarget = server
                 confirmingTerminate = true
             }
+            .disabled(!scanner.canTerminate(server))
         }
         .confirmationDialog(
-            "Terminate \(server.displayName)?",
+            "Terminate \(terminationTarget?.displayName ?? server.displayName)?",
             isPresented: $confirmingTerminate,
-            titleVisibility: .visible
-        ) {
-            Button("Terminate", role: .destructive) { terminate() }
+            titleVisibility: .visible,
+            presenting: terminationTarget
+        ) { target in
+            Button("Terminate", role: .destructive) { terminate(target) }
+                .disabled(!scanner.canTerminate(target))
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Sends SIGTERM to pid \(server.pid), which is listening on port \(server.port). Unsaved work in that process may be lost.")
+        } message: { target in
+            Text("Sends SIGTERM to pid \(target.pid), which is listening on port \(target.port). Unsaved work in that process may be lost.")
+        }
+        .onChange(of: confirmingTerminate) { _, presented in
+            if !presented { terminationTarget = nil }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(server.displayName), port \(server.port)")
@@ -99,12 +107,25 @@ struct ServerRowView: View {
         .help("Click to open · Right-click for actions")
     }
 
-    private func terminate() {
-        switch PortActions.terminate(server) {
+    private func terminate(_ target: ListeningServer) {
+        guard scanner.canTerminate(target) else {
+            scanner.report("The process list changed or could not be verified. Refresh before terminating a process.")
+            return
+        }
+        switch PortActions.terminate(target) {
         case .failed(let reason):
             scanner.report(reason)
         case .succeeded:
-            Task { await scanner.refreshUntilGone(pid: server.pid) }
+            Task {
+                switch await scanner.refreshUntilGone(pid: target.pid, identity: target.processIdentity) {
+                case .stillListening:
+                    scanner.report("SIGTERM was sent to \(target.displayName) (pid \(target.pid)), but it is still listening. Harbor has not force-killed it.")
+                case .discoveryFailed:
+                    scanner.report("SIGTERM was sent to \(target.displayName) (pid \(target.pid)), but a scan failure prevented confirming that it stopped listening.")
+                case .noLongerListening, .cancelled:
+                    break
+                }
+            }
         }
     }
 
@@ -116,3 +137,4 @@ struct ServerRowView: View {
         }
     }
 }
+

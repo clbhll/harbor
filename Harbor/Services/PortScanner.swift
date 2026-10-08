@@ -4,17 +4,33 @@ import Observation
 @MainActor
 @Observable
 final class PortScanner {
+    typealias Discovery = @Sendable () async throws -> [ListeningServer]
+
+    enum RefreshResult: Equatable, Sendable {
+        case success([ListeningServer])
+        case failure
+        case cancelled
+    }
+
+    enum ProcessRefreshResult: Equatable, Sendable {
+        case noLongerListening
+        case stillListening
+        case discoveryFailed
+        case cancelled
+    }
+
     private(set) var servers: [ListeningServer] = []
 
-    /// Filtering used to be a computed property, which the view then called once
-    /// per row to draw separators — an O(n²) sweep that rebuilt a search string
-    /// for every server on every pass. It's now recomputed only when one of its
-    /// three inputs changes.
+    /// Cache the filtered list rather than rebuilding it for every row.
     private(set) var filteredServers: [ListeningServer] = []
 
     private(set) var isRefreshing = false
     private(set) var lastUpdated: Date?
-    private(set) var errorMessage: String?
+    private(set) var discoveryErrorMessage: String?
+    private(set) var actionErrorMessage: String?
+    /// Kept separately from the banner: dismissing an error must not make
+    /// last-known process information safe to act on again.
+    private(set) var isDiscoveryTrusted = false
 
     var query: String = "" {
         didSet {
@@ -31,22 +47,20 @@ final class PortScanner {
         }
     }
 
-    /// The panel is closed almost all of the time, and a scan forks `lsof` and
-    /// reads argv for every listening pid. While nobody is looking we only need
-    /// the menu bar count to be roughly right, so we back off hard.
+    /// Background polling is slower while the panel is closed.
     var isPanelVisible = false {
         didSet {
             guard isPanelVisible != oldValue else { return }
-            // Scan straight away when the panel opens so it isn't showing stale
-            // rows; when it closes there's nothing to show, so just relax the
-            // cadence rather than paying for one more scan on the way out.
             startPolling(immediate: isPanelVisible)
         }
     }
 
     static let hideSystemDefaultsKey = "hideSystemProcesses"
 
-    private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var scanTask: Task<RefreshResult, Never>?
+    private let discovery: Discovery
+    private let pollingEnabled: Bool
     private static let activeInterval: Duration = .milliseconds(2500)
     private static let idleInterval: Duration = .seconds(20)
 
@@ -58,81 +72,158 @@ final class PortScanner {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        startPolling: Bool = true,
+        discovery: @escaping Discovery = { try await PortDiscovery.discover() }
+    ) {
         self.defaults = defaults
-        // `object(forKey:)` rather than `bool(forKey:)` so a first launch keeps
-        // the intended default of true instead of falling through to false.
+        self.discovery = discovery
+        pollingEnabled = startPolling
         hideSystemProcesses = defaults.object(forKey: Self.hideSystemDefaultsKey) as? Bool ?? true
-        startPolling(immediate: true)
+        self.startPolling(immediate: true)
     }
 
     // MARK: - Polling
 
-    /// Deliberately no `deinit`. The old one invalidated a `Timer` from a
-    /// nonisolated `deinit` while the property it touched was main-actor
-    /// isolated — legal only because the project was in Swift 5 mode. The loop
-    /// holds `self` weakly and exits on its own once the scanner goes away.
+    private var pollingInterval: Duration {
+        isPanelVisible ? Self.activeInterval : Self.idleInterval
+    }
+
     private func startPolling(immediate: Bool) {
+        guard pollingEnabled else { return }
         pollTask?.cancel()
 
         pollTask = Task { [weak self] in
             var shouldScan = immediate
             while !Task.isCancelled {
-                guard let self else { return }
-                if shouldScan { await self.refresh() }
+                if shouldScan { await self?.refresh() }
                 shouldScan = true
 
-                let interval = self.isPanelVisible ? Self.activeInterval : Self.idleInterval
+                // Do not keep the scanner alive across the polling sleep.
+                guard let interval = self?.pollingInterval else { return }
                 do {
                     try await Task.sleep(for: interval)
                 } catch {
-                    return  // cancelled
+                    return
                 }
             }
         }
     }
 
-    func refresh() async {
-        guard !isRefreshing else { return }
+    /// Every caller waits for a real result, including callers that arrive
+    /// during a scan. Cancelling one waiter does not cancel discovery needed
+    /// by the other waiters or by polling.
+    @discardableResult
+    func refresh() async -> RefreshResult {
+        guard !Task.isCancelled else { return .cancelled }
+        let task = scanTask ?? beginScan()
+        let result = await task.value
+        return Task.isCancelled ? .cancelled : result
+    }
+
+    private func beginScan() -> Task<RefreshResult, Never> {
         isRefreshing = true
-        defer { isRefreshing = false }
+        let discovery = discovery
+        let task = Task { [weak self] in
+            let result: RefreshResult
+            do {
+                let discovered = try await discovery()
+                try Task.checkCancellation()
+                result = .success(discovered)
+            } catch is CancellationError {
+                result = .cancelled
+            } catch {
+                self?.discoveryErrorMessage = error.localizedDescription
+                result = .failure
+            }
 
-        do {
-            let discovered = try await Task.detached(priority: .utility) {
-                try PortDiscovery.discover()
-            }.value
+            self?.finishScan(result)
+            return result
+        }
+        scanTask = task
+        return task
+    }
 
+    private func finishScan(_ result: RefreshResult) {
+        switch result {
+        case .success(let discovered):
             servers = discovered
             AppIconCache.prune(keeping: discovered)
             applyFilters()
             lastUpdated = Date()
-            errorMessage = nil
-        } catch {
-            // Keep the last good list on screen; the view surfaces this as a
-            // banner rather than replacing everything with an error state.
-            errorMessage = error.localizedDescription
+            discoveryErrorMessage = nil
+            isDiscoveryTrusted = true
+        case .failure, .cancelled:
+            // Retain the last good list and timestamp, but never treat a failed
+            // or cancelled observation as evidence that a process is gone.
+            isDiscoveryTrusted = false
         }
+        // Action errors belong to the action that failed, not to this scan.
+        scanTask = nil
+        isRefreshing = false
     }
 
-    /// Rescans until `pid` stops listening, or we run out of attempts. Signal
-    /// delivery and teardown take an unbounded amount of time, so poll for it
-    /// instead of guessing a single delay.
-    func refreshUntilGone(pid: Int32, attempts: Int = 6) async {
-        for attempt in 0..<attempts {
-            if attempt > 0 {
-                try? await Task.sleep(for: .milliseconds(150))
-            }
-            await refresh()
-            if !servers.contains(where: { $0.pid == pid }) { return }
+    /// Confirm disappearance using a scan launched after this method is called.
+    /// An older in-flight scan may have observed the process before SIGTERM;
+    /// wait for it, then perform at least one post-action scan. Only completed
+    /// post-action scans count toward the retry limit.
+    @discardableResult
+    func refreshUntilGone(pid: Int32, identity: ProcessIdentity? = nil, attempts: Int = 6) async -> ProcessRefreshResult {
+        guard !Task.isCancelled else { return .cancelled }
+        if let priorScan = scanTask {
+            _ = await priorScan.value
+            guard !Task.isCancelled else { return .cancelled }
         }
+
+        for attempt in 0..<max(1, attempts) {
+            if attempt > 0 {
+                do {
+                    try await Task.sleep(for: .milliseconds(150))
+                } catch {
+                    return .cancelled
+                }
+            }
+            switch await refresh() {
+            case .success(let discovered):
+                let candidates = discovered.filter { $0.pid == pid }
+                if candidates.isEmpty { return .noLongerListening }
+                if let identity {
+                    // A reused PID is not the process the user confirmed. An
+                    // unreadable identity cannot prove either outcome.
+                    guard candidates.allSatisfy({ $0.processIdentity != nil }) else {
+                        return .discoveryFailed
+                    }
+                    if !candidates.contains(where: { $0.processIdentity == identity }) {
+                        return .noLongerListening
+                    }
+                }
+            case .failure:
+                return .discoveryFailed
+            case .cancelled:
+                return .cancelled
+            }
+        }
+        return .stillListening
+    }
+
+    /// The action layer must still revalidate identity immediately before
+    /// signaling. This guard prevents offering termination for stale UI rows.
+    func canTerminate(_ server: ListeningServer) -> Bool {
+        isDiscoveryTrusted && !isRefreshing && server.processIdentity != nil
+            && servers.contains(server)
     }
 
     func report(_ message: String) {
-        errorMessage = message
+        actionErrorMessage = message
     }
 
-    func dismissError() {
-        errorMessage = nil
+    func dismissActionError() {
+        actionErrorMessage = nil
+    }
+
+    func dismissDiscoveryError() {
+        discoveryErrorMessage = nil
     }
 
     // MARK: - Filtering

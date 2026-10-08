@@ -8,6 +8,7 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
     let address: String
     let executablePath: String?
     let commandLine: String?
+    let processIdentity: ProcessIdentity?
 
     /// Lowercased blob used for search. Built once per scan, on the background
     /// queue that produced the server, rather than once per keystroke per row.
@@ -20,7 +21,8 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
         port: Int,
         address: String,
         executablePath: String?,
-        commandLine: String?
+        commandLine: String?,
+        processIdentity: ProcessIdentity? = nil
     ) {
         self.id = id
         self.pid = pid
@@ -29,6 +31,7 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
         self.address = address
         self.executablePath = executablePath
         self.commandLine = commandLine
+        self.processIdentity = processIdentity
         self.searchHaystack = "\(processName) \(port) \(address) \(pid) \(commandLine ?? "")"
             .lowercased()
     }
@@ -56,3 +59,4 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
         }
     }
 }
+

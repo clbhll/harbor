@@ -12,8 +12,18 @@ struct MenuBarView: View {
             VStack(spacing: 0) {
                 header
                 SearchField(scanner: scanner)
-                if let error = scanner.errorMessage {
-                    ErrorBanner(message: error) { scanner.dismissError() }
+                if let error = scanner.actionErrorMessage {
+                    ErrorBanner(message: error, dismissLabel: "Dismiss action error") {
+                        scanner.dismissActionError()
+                    }
+                }
+                if let error = scanner.discoveryErrorMessage {
+                    ErrorBanner(
+                        message: "Couldn’t refresh ports: \(error)",
+                        dismissLabel: "Dismiss discovery error"
+                    ) {
+                        scanner.dismissDiscoveryError()
+                    }
                 }
                 content
                 FooterBar(scanner: scanner)
@@ -76,6 +86,10 @@ struct MenuBarView: View {
     }
 
     private var subtitle: String {
+        if !scanner.isDiscoveryTrusted {
+            if scanner.lastUpdated != nil { return "Showing last successful scan" }
+            return scanner.isRefreshing ? "Checking local ports…" : "Local ports unavailable"
+        }
         let count = scanner.filteredServers.count
         if count == 0 {
             return "No local servers right now"
@@ -89,7 +103,20 @@ struct MenuBarView: View {
         // re-ran for every row.
         let servers = scanner.filteredServers
 
-        if servers.isEmpty {
+        if servers.isEmpty && !scanner.isDiscoveryTrusted {
+            VStack(spacing: 8) {
+                if scanner.isRefreshing { ProgressView().controlSize(.small) }
+                Text(scanner.isRefreshing ? "Checking local ports…" : "Port information unavailable")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(HarborTheme.textSecondary)
+                if !scanner.isRefreshing {
+                    Text("Refresh to try again.")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(HarborTheme.textTertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if servers.isEmpty {
             EmptyStateView(hasQuery: !scanner.query.isEmpty)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -171,6 +198,7 @@ private struct SearchField: View {
 
 private struct ErrorBanner: View {
     let message: String
+    let dismissLabel: String
     let dismiss: () -> Void
 
     var body: some View {
@@ -192,7 +220,7 @@ private struct ErrorBanner: View {
                     .foregroundStyle(HarborTheme.decoration)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss")
+            .accessibilityLabel(dismissLabel)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -266,3 +294,4 @@ private extension Date {
         return "\(minutes / 60)h ago"
     }
 }
+
