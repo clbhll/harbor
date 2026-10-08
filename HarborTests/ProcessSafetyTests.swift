@@ -106,6 +106,21 @@ struct ProcessSafetyTests {
         #expect(identity.predates(Date(timeIntervalSince1970: 101)))
         #expect(!identity.predates(Date(timeIntervalSince1970: 99)))
     }
+
+    @Test("The live inspector can identify its own test process without signaling it")
+    func readsOwnIdentity() throws {
+        let observedAt = Date()
+        let current = try #require(ProcessIdentity.read(for: getpid()))
+        #expect(current.pid == getpid())
+        #expect(current.userID == geteuid())
+        #expect(current.predates(observedAt))
+        #expect(current.executablePath.hasPrefix("/"))
+        #expect(ProcessIdentity.read(for: getpid()) == current)
+
+        let controller = StubProcessController(current: current)
+        #expect(PortActions.terminate(server(identity: current, pid: getpid()), controller: controller) != .succeeded)
+        #expect(controller.signaled.isEmpty)
+    }
 }
 
 @Suite("Kernel argument-buffer boundaries")

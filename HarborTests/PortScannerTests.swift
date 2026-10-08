@@ -331,4 +331,20 @@ struct PortScannerTests {
         #expect(result == .discoveryFailed)
     }
 
+    @Test("Hide-system preference persists through the injected defaults store")
+    func persistsDisplayPreference() throws {
+        let suite = "Harbor.DisplayPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = PortScanner(defaults: defaults, startPolling: false, discovery: { [] })
+        #expect(first.hideSystemProcesses)
+        first.hideSystemProcesses = false
+        #expect(defaults.object(forKey: PortScanner.hideSystemDefaultsKey) as? Bool == false)
+
+        let reopened = PortScanner(defaults: defaults, startPolling: false, discovery: { [] })
+        #expect(!reopened.hideSystemProcesses)
+        reopened.hideSystemProcesses = true
+        #expect(defaults.object(forKey: PortScanner.hideSystemDefaultsKey) as? Bool == true)
+    }
+
 }

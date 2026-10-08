@@ -250,9 +250,25 @@ enum CommandRunner {
         var attributes: posix_spawnattr_t?
         try checkSpawnCall(posix_spawnattr_init(&attributes), operation: "posix_spawnattr_init")
         defer { posix_spawnattr_destroy(&attributes) }
+
+        // Dispatch workers and test/app hosts can block or ignore signals. Give
+        // the child an empty mask and default dispositions instead of inheriting
+        // that ambient state. These attributes affect only the spawned child.
+        var signalMask = sigset_t()
+        sigemptyset(&signalMask)
+        try checkSpawnCall(posix_spawnattr_setsigmask(&attributes, &signalMask),
+                           operation: "posix_spawnattr_setsigmask")
+        var defaultSignals = sigset_t()
+        sigfillset(&defaultSignals)
+        sigdelset(&defaultSignals, SIGKILL)
+        sigdelset(&defaultSignals, SIGSTOP)
+        try checkSpawnCall(posix_spawnattr_setsigdefault(&attributes, &defaultSignals),
+                           operation: "posix_spawnattr_setsigdefault")
+
         // Only explicitly redirected descriptors cross into the child. In
         // particular, another concurrently running command cannot inherit pipes.
-        try checkSpawnCall(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)),
+        let flags = POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
+        try checkSpawnCall(posix_spawnattr_setflags(&attributes, Int16(flags)),
                            operation: "posix_spawnattr_setflags")
 
         let argv = try cStrings([launchPath] + arguments)
