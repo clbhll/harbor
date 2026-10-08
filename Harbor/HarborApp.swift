@@ -2,12 +2,12 @@ import SwiftUI
 
 @main
 struct HarborApp: App {
-    @StateObject private var scanner = PortScanner()
+    @State private var scanner = PortScanner()
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
-                .environmentObject(scanner)
+                .environment(scanner)
         } label: {
             MenuBarLabel(count: scanner.filteredServers.count)
         }
@@ -15,7 +15,7 @@ struct HarborApp: App {
 
         Settings {
             SettingsView()
-                .environmentObject(scanner)
+                .environment(scanner)
         }
     }
 }

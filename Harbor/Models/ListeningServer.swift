@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 
 struct ListeningServer: Identifiable, Hashable, Sendable {
     let id: String
@@ -9,6 +8,33 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
     let address: String
     let executablePath: String?
     let commandLine: String?
+    let processIdentity: ProcessIdentity?
+
+    /// Lowercased blob used for search. Built once per scan, on the background
+    /// queue that produced the server, rather than once per keystroke per row.
+    let searchHaystack: String
+
+    init(
+        id: String,
+        pid: Int32,
+        processName: String,
+        port: Int,
+        address: String,
+        executablePath: String?,
+        commandLine: String?,
+        processIdentity: ProcessIdentity? = nil
+    ) {
+        self.id = id
+        self.pid = pid
+        self.processName = processName
+        self.port = port
+        self.address = address
+        self.executablePath = executablePath
+        self.commandLine = commandLine
+        self.processIdentity = processIdentity
+        self.searchHaystack = "\(processName) \(port) \(address) \(pid) \(commandLine ?? "")"
+            .lowercased()
+    }
 
     var displayName: String {
         let base = processName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -16,18 +42,10 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
         return base
     }
 
-    var localhostURL: URL? {
-        URL(string: "http://127.0.0.1:\(port)")
-    }
-
-    var openURLCandidates: [URL] {
-        [
-            URL(string: "http://localhost:\(port)"),
-            URL(string: "http://127.0.0.1:\(port)"),
-            address == "*" || address == "0.0.0.0" || address == "::"
-                ? nil
-                : URL(string: "http://\(address):\(port)")
-        ].compactMap { $0 }
+    /// Where a click takes you. Everything Harbor lists is bound locally, so
+    /// `localhost` is reachable regardless of the advertised bind address.
+    var openURL: URL? {
+        URL(string: "http://localhost:\(port)")
     }
 
     var addressLabel: String {
@@ -40,37 +58,5 @@ struct ListeningServer: Identifiable, Hashable, Sendable {
             return address
         }
     }
-
-    var isLocalOnly: Bool {
-        ["127.0.0.1", "::1", "localhost"].contains(address)
-    }
-
-    func appIcon(size: CGFloat = 28) -> NSImage {
-        let fallback = NSWorkspace.shared.icon(forFileType: "public.unix-executable")
-        guard let path = executablePath, FileManager.default.fileExists(atPath: path) else {
-            return resized(fallback, size: size)
-        }
-
-        if let bundle = Bundle(path: path), bundle.bundleIdentifier != nil {
-            return resized(NSWorkspace.shared.icon(forFile: path), size: size)
-        }
-
-        var url = URL(fileURLWithPath: path)
-        for _ in 0..<6 {
-            if url.pathExtension == "app" {
-                return resized(NSWorkspace.shared.icon(forFile: url.path), size: size)
-            }
-            url.deleteLastPathComponent()
-        }
-
-        return resized(NSWorkspace.shared.icon(forFile: path), size: size)
-    }
-
-    private func resized(_ image: NSImage, size: CGFloat) -> NSImage {
-        let target = NSSize(width: size, height: size)
-        return NSImage(size: target, flipped: false) { rect in
-            image.draw(in: rect)
-            return true
-        }
-    }
 }
+

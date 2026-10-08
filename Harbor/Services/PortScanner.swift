@@ -1,299 +1,250 @@
 import Foundation
-import Combine
-import Darwin
-import SwiftUI
+import Observation
 
 @MainActor
-final class PortScanner: ObservableObject {
-    @Published private(set) var servers: [ListeningServer] = []
-    @Published private(set) var isRefreshing = false
-    @Published private(set) var lastUpdated: Date?
-    @Published private(set) var errorMessage: String?
-    @Published var query: String = ""
-    @Published var hideSystemProcesses = true
+@Observable
+final class PortScanner {
+    typealias Discovery = @Sendable () async throws -> [ListeningServer]
 
-    private var timer: Timer?
-    private let refreshInterval: TimeInterval = 2.5
+    enum RefreshResult: Equatable, Sendable {
+        case success([ListeningServer])
+        case failure
+        case cancelled
+    }
+
+    enum ProcessRefreshResult: Equatable, Sendable {
+        case noLongerListening
+        case stillListening
+        case discoveryFailed
+        case cancelled
+    }
+
+    private(set) var servers: [ListeningServer] = []
+
+    /// Cache the filtered list rather than rebuilding it for every row.
+    private(set) var filteredServers: [ListeningServer] = []
+
+    private(set) var isRefreshing = false
+    private(set) var lastUpdated: Date?
+    private(set) var discoveryErrorMessage: String?
+    private(set) var actionErrorMessage: String?
+    /// Kept separately from the banner: dismissing an error must not make
+    /// last-known process information safe to act on again.
+    private(set) var isDiscoveryTrusted = false
+
+    var query: String = "" {
+        didSet {
+            guard query != oldValue else { return }
+            applyFilters()
+        }
+    }
+
+    var hideSystemProcesses: Bool {
+        didSet {
+            guard hideSystemProcesses != oldValue else { return }
+            defaults.set(hideSystemProcesses, forKey: Self.hideSystemDefaultsKey)
+            applyFilters()
+        }
+    }
+
+    /// Background polling is slower while the panel is closed.
+    var isPanelVisible = false {
+        didSet {
+            guard isPanelVisible != oldValue else { return }
+            startPolling(immediate: isPanelVisible)
+        }
+    }
+
+    static let hideSystemDefaultsKey = "hideSystemProcesses"
+
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var scanTask: Task<RefreshResult, Never>?
+    private let discovery: Discovery
+    private let pollingEnabled: Bool
+    private static let activeInterval: Duration = .milliseconds(2500)
+    private static let idleInterval: Duration = .seconds(20)
 
     private static let systemProcessNames: Set<String> = [
-        "launchd", "rapportd", "ControlCe", "ControlCenter", "sharingd",
-        "identityservice", "syspolicyd", "mDNSResponder", "configd",
-        "AirPlayXPCHelper", "remoted", "bluetoothd"
+        "launchd", "rapportd", "controlcenter", "sharingd",
+        "identityservice", "syspolicyd", "mdnsresponder", "configd",
+        "airplayxpchelper", "remoted", "bluetoothd"
     ]
 
-    var filteredServers: [ListeningServer] {
-        servers.filter { server in
-            if hideSystemProcesses {
-                let name = server.processName.lowercased()
-                if Self.systemProcessNames.contains(where: { name.hasPrefix($0.lowercased()) }) {
-                    return false
+    private let defaults: UserDefaults
+
+    init(
+        defaults: UserDefaults = .standard,
+        startPolling: Bool = true,
+        discovery: @escaping Discovery = { try await PortDiscovery.discover() }
+    ) {
+        self.defaults = defaults
+        self.discovery = discovery
+        pollingEnabled = startPolling
+        hideSystemProcesses = defaults.object(forKey: Self.hideSystemDefaultsKey) as? Bool ?? true
+        self.startPolling(immediate: true)
+    }
+
+    // MARK: - Polling
+
+    private var pollingInterval: Duration {
+        isPanelVisible ? Self.activeInterval : Self.idleInterval
+    }
+
+    private func startPolling(immediate: Bool) {
+        guard pollingEnabled else { return }
+        pollTask?.cancel()
+
+        pollTask = Task { [weak self] in
+            var shouldScan = immediate
+            while !Task.isCancelled {
+                if shouldScan { await self?.refresh() }
+                shouldScan = true
+
+                // Do not keep the scanner alive across the polling sleep.
+                guard let interval = self?.pollingInterval else { return }
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
                 }
-                if server.executablePath?.hasPrefix("/System/") == true {
-                    return false
-                }
-                if server.executablePath?.hasPrefix("/usr/libexec/") == true {
-                    return false
-                }
+            }
+        }
+    }
+
+    /// Every caller waits for a real result, including callers that arrive
+    /// during a scan. Cancelling one waiter does not cancel discovery needed
+    /// by the other waiters or by polling.
+    @discardableResult
+    func refresh() async -> RefreshResult {
+        guard !Task.isCancelled else { return .cancelled }
+        let task = scanTask ?? beginScan()
+        let result = await task.value
+        return Task.isCancelled ? .cancelled : result
+    }
+
+    private func beginScan() -> Task<RefreshResult, Never> {
+        isRefreshing = true
+        let discovery = discovery
+        let task = Task { [weak self] in
+            let result: RefreshResult
+            do {
+                let discovered = try await discovery()
+                try Task.checkCancellation()
+                result = .success(discovered)
+            } catch is CancellationError {
+                result = .cancelled
+            } catch {
+                self?.discoveryErrorMessage = error.localizedDescription
+                result = .failure
             }
 
-            if !query.isEmpty {
-                let q = query.lowercased()
-                let haystack = "\(server.displayName) \(server.port) \(server.address) \(server.pid) \(server.commandLine ?? "")"
-                    .lowercased()
-                if !haystack.contains(q) { return false }
+            self?.finishScan(result)
+            return result
+        }
+        scanTask = task
+        return task
+    }
+
+    private func finishScan(_ result: RefreshResult) {
+        switch result {
+        case .success(let discovered):
+            servers = discovered
+            AppIconCache.prune(keeping: discovered)
+            applyFilters()
+            lastUpdated = Date()
+            discoveryErrorMessage = nil
+            isDiscoveryTrusted = true
+        case .failure, .cancelled:
+            // Retain the last good list and timestamp, but never treat a failed
+            // or cancelled observation as evidence that a process is gone.
+            isDiscoveryTrusted = false
+        }
+        // Action errors belong to the action that failed, not to this scan.
+        scanTask = nil
+        isRefreshing = false
+    }
+
+    /// Confirm disappearance using a scan launched after this method is called.
+    /// An older in-flight scan may have observed the process before SIGTERM;
+    /// wait for it, then perform at least one post-action scan. Only completed
+    /// post-action scans count toward the retry limit.
+    @discardableResult
+    func refreshUntilGone(pid: Int32, identity: ProcessIdentity? = nil, attempts: Int = 6) async -> ProcessRefreshResult {
+        guard !Task.isCancelled else { return .cancelled }
+        if let priorScan = scanTask {
+            _ = await priorScan.value
+            guard !Task.isCancelled else { return .cancelled }
+        }
+
+        for attempt in 0..<max(1, attempts) {
+            if attempt > 0 {
+                do {
+                    try await Task.sleep(for: .milliseconds(150))
+                } catch {
+                    return .cancelled
+                }
             }
+            switch await refresh() {
+            case .success(let discovered):
+                let candidates = discovered.filter { $0.pid == pid }
+                if candidates.isEmpty { return .noLongerListening }
+                if let identity {
+                    // A reused PID is not the process the user confirmed. An
+                    // unreadable identity cannot prove either outcome.
+                    guard candidates.allSatisfy({ $0.processIdentity != nil }) else {
+                        return .discoveryFailed
+                    }
+                    if !candidates.contains(where: { $0.processIdentity == identity }) {
+                        return .noLongerListening
+                    }
+                }
+            case .failure:
+                return .discoveryFailed
+            case .cancelled:
+                return .cancelled
+            }
+        }
+        return .stillListening
+    }
+
+    /// The action layer must still revalidate identity immediately before
+    /// signaling. This guard prevents offering termination for stale UI rows.
+    func canTerminate(_ server: ListeningServer) -> Bool {
+        isDiscoveryTrusted && !isRefreshing && server.processIdentity != nil
+            && servers.contains(server)
+    }
+
+    func report(_ message: String) {
+        actionErrorMessage = message
+    }
+
+    func dismissActionError() {
+        actionErrorMessage = nil
+    }
+
+    func dismissDiscoveryError() {
+        discoveryErrorMessage = nil
+    }
+
+    // MARK: - Filtering
+
+    private func applyFilters() {
+        let needle = query.lowercased()
+
+        filteredServers = servers.filter { server in
+            if hideSystemProcesses && Self.isSystemProcess(server) { return false }
+            if !needle.isEmpty && !server.searchHaystack.contains(needle) { return false }
             return true
         }
     }
 
-    init() {
-        Task { await refresh() }
-        startPolling()
-    }
-
-    deinit {
-        timer?.invalidate()
-    }
-
-    func startPolling() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.refresh()
-            }
+    private static func isSystemProcess(_ server: ListeningServer) -> Bool {
+        let name = server.processName.lowercased()
+        if systemProcessNames.contains(where: { name.hasPrefix($0) }) { return true }
+        if let path = server.executablePath {
+            if path.hasPrefix("/System/") { return true }
+            if path.hasPrefix("/usr/libexec/") { return true }
         }
-    }
-
-    func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
-
-        do {
-            let discovered = try await Task.detached(priority: .utility) {
-                try PortDiscovery.discover()
-            }.value
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                servers = discovered
-            }
-            lastUpdated = Date()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-}
-
-enum PortDiscovery {
-    static func discover() throws -> [ListeningServer] {
-        let output = try run("/usr/sbin/lsof", arguments: [
-            "-nP",
-            "-iTCP",
-            "-sTCP:LISTEN",
-            "-Fpcn"
-        ])
-        return parseLsof(output)
-    }
-
-    private static func parseLsof(_ output: String) -> [ListeningServer] {
-        var currentPID: Int32?
-        var currentName: String?
-        var servers: [ListeningServer] = []
-        var seen = Set<String>()
-
-        for line in output.split(whereSeparator: \.isNewline).map(String.init) {
-            guard let flag = line.first else { continue }
-            let value = String(line.dropFirst())
-
-            switch flag {
-            case "p":
-                currentPID = Int32(value)
-                currentName = nil
-            case "c":
-                currentName = value
-            case "n":
-                guard
-                    let pid = currentPID,
-                    let name = currentName,
-                    let endpoint = parseEndpoint(value)
-                else { continue }
-
-                if name == "Harbor" { continue }
-
-                let id = "\(pid)-\(endpoint.address)-\(endpoint.port)"
-                guard seen.insert(id).inserted else { continue }
-
-                let path = executablePath(for: pid)
-                let command = commandLine(for: pid)
-
-                servers.append(
-                    ListeningServer(
-                        id: id,
-                        pid: pid,
-                        processName: friendlyName(processName: name, path: path, command: command),
-                        port: endpoint.port,
-                        address: endpoint.address,
-                        executablePath: path,
-                        commandLine: command
-                    )
-                )
-            default:
-                continue
-            }
-        }
-
-        return servers.sorted {
-            if $0.port != $1.port { return $0.port < $1.port }
-            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
-    }
-
-    private static func parseEndpoint(_ raw: String) -> (address: String, port: Int)? {
-        let cleaned = raw.split(separator: "->", maxSplits: 1, omittingEmptySubsequences: true)
-            .first
-            .map(String.init) ?? raw
-
-        if cleaned.hasPrefix("[") {
-            guard let close = cleaned.firstIndex(of: "]") else { return nil }
-            let address = String(cleaned[cleaned.index(after: cleaned.startIndex)..<close])
-            let rest = cleaned[cleaned.index(after: close)...]
-            guard rest.hasPrefix(":"), let port = Int(rest.dropFirst()) else { return nil }
-            return (address, port)
-        }
-
-        guard let colon = cleaned.lastIndex(of: ":") else { return nil }
-        let address = String(cleaned[..<colon])
-        guard let port = Int(cleaned[cleaned.index(after: colon)...]) else { return nil }
-        return (address, port)
-    }
-
-    private static func friendlyName(processName: String, path: String?, command: String?) -> String {
-        if let path,
-           let appURL = enclosingApp(for: path),
-           let bundle = Bundle(url: appURL) {
-            if let display = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
-               !display.isEmpty {
-                return display
-            }
-            if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
-               !name.isEmpty {
-                return name
-            }
-        }
-
-        if let command, !command.isEmpty {
-            let tokens = command.split(separator: " ").map(String.init)
-            if let nodeIdx = tokens.firstIndex(where: { $0.hasSuffix("/node") || $0 == "node" }),
-               nodeIdx + 1 < tokens.count {
-                let script = URL(fileURLWithPath: tokens[nodeIdx + 1]).lastPathComponent
-                if !script.isEmpty && script != "node" {
-                    return "node · \(script)"
-                }
-            }
-            if let pythonIdx = tokens.firstIndex(where: { $0.contains("python") }),
-               pythonIdx + 1 < tokens.count {
-                let script = URL(fileURLWithPath: tokens[pythonIdx + 1]).lastPathComponent
-                if script.hasSuffix(".py") {
-                    return "python · \(script)"
-                }
-            }
-        }
-
-        return processName
-    }
-
-    private static func enclosingApp(for path: String) -> URL? {
-        var url = URL(fileURLWithPath: path)
-        for _ in 0..<8 {
-            if url.pathExtension == "app" { return url }
-            let parent = url.deletingLastPathComponent()
-            if parent.path == url.path { return nil }
-            url = parent
-        }
-        return nil
-    }
-
-    private static func executablePath(for pid: Int32) -> String? {
-        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
-        guard length > 0 else { return nil }
-        return String(cString: buffer)
-    }
-
-    private static func commandLine(for pid: Int32) -> String? {
-        var argMax: Int32 = 0
-        var sizeOf = MemoryLayout<Int32>.size
-        sysctlbyname("kern.argmax", &argMax, &sizeOf, nil, 0)
-        guard argMax > 0 else { return nil }
-
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        var buffer = [UInt8](repeating: 0, count: Int(argMax))
-        var bufferSize = buffer.count
-
-        let result = buffer.withUnsafeMutableBytes { raw in
-            sysctl(&mib, UInt32(mib.count), raw.baseAddress, &bufferSize, nil, 0)
-        }
-        guard result == 0, bufferSize > MemoryLayout<Int32>.size else { return nil }
-
-        let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
-        guard argc > 0 else { return nil }
-
-        var index = MemoryLayout<Int32>.size
-        while index < bufferSize && buffer[index] != 0 { index += 1 }
-        while index < bufferSize && buffer[index] == 0 { index += 1 }
-
-        var args: [String] = []
-        for _ in 0..<argc {
-            guard index < bufferSize else { break }
-            var end = index
-            while end < bufferSize && buffer[end] != 0 { end += 1 }
-            if end > index {
-                let slice = buffer[index..<end]
-                if let str = String(bytes: slice, encoding: .utf8) {
-                    args.append(str)
-                }
-            }
-            index = end + 1
-            while index < bufferSize && buffer[index] == 0 { index += 1 }
-        }
-
-        return args.isEmpty ? nil : args.joined(separator: " ")
-    }
-
-    private static func run(_ launchPath: String, arguments: [String]) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: launchPath)
-        process.arguments = arguments
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-
-        // lsof returns 1 when nothing is listening; treat as empty success.
-        if process.terminationStatus != 0 && process.terminationStatus != 1 {
-            let message = String(data: errData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw DiscoveryError.commandFailed(message ?? "lsof exited \(process.terminationStatus)")
-        }
-
-        return String(data: data, encoding: .utf8) ?? ""
-    }
-}
-
-enum DiscoveryError: LocalizedError {
-    case commandFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .commandFailed(let message):
-            return message
-        }
+        return false
     }
 }
